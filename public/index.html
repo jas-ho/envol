@@ -5,21 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jason</title>
 <meta name="description" content="Jason Schreiber">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap">
 <style>
   :root { --bg: #f7f5f0; --fg: #1d1d1b; --muted: #6b6a66; }
   @media (prefers-color-scheme: dark) { :root { --bg: #151514; --fg: #ecebe6; --muted: #9a9892; } }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
-  body { display: grid; place-items: center; font: 18px/1.5 Georgia, "Iowan Old Style", serif; }
-  main { padding: 2rem 1.5rem; max-width: 34rem; }
-  h1 { font-weight: normal; font-size: 2.2rem; margin: 0 0 .25rem; letter-spacing: .01em; }
-  p { margin: .25rem 0; color: var(--muted); }
-  a { color: inherit; text-underline-offset: .2em; }
-  #bird { display: block; width: min(24rem, 100%); aspect-ratio: 4 / 3; margin: 0 0 1rem -.5rem; cursor: pointer; }
+  html { background: var(--bg); color: var(--fg); }
+  body { margin: 0; font: 20px/1.55 "EB Garamond", Garamond, Georgia, serif; font-feature-settings: "onum", "kern"; }
+  /* Book-page proportions: a column of ~65 characters set high, with the wider margin outside (right). */
+  main { width: min(33rem, 100% - 3rem); margin: 18vh 0 4rem clamp(1.5rem, 13vw, 11rem); }
+  h1 { font-weight: 500; font-size: 2.1rem; line-height: 1.2; margin: 0 0 .6rem; letter-spacing: .01em; }
+  p { margin: 0 0 .4rem; color: var(--muted); }
+  a { color: inherit; text-decoration: none; font-variant-caps: all-small-caps; letter-spacing: .06em; border-bottom: 1px solid currentColor; }
+  a:hover { color: var(--fg); }
+  /* A quiet mark above the name. Once the column holds real text it can move into the outer margin. */
+  #bird { display: block; width: 7rem; height: 5.25rem; margin: -1rem 0 0 -1.3rem; }
 </style>
 </head>
 <body>
 <main>
-  <canvas id="bird" role="img" aria-label="Ein Papierkranich, der abhebt"></canvas>
+  <canvas id="bird" role="img" aria-label="Ein Papierkranich"></canvas>
   <h1>Jason</h1>
   <p>en vol. Mehr folgt.</p>
   <p><a href="mailto:jason@envol.at">jason@envol.at</a></p>
@@ -56,94 +62,89 @@
     [0, 1, 13], [0, 13, 12], [12, 13, 14],
     [0, 1, 16], [0, 16, 15], [15, 16, 17],
   ];
-  // Unique edges, drawn in from the body outwards.
+  // Unique edges, inked from the body outwards.
   const EDGES = [...new Set(FACES.flatMap(([a, b, c]) =>
     [[a, b], [b, c], [c, a]].map((e) => e.sort((x, y) => x - y).join())))]
     .map((e) => e.split(',').map(Number))
     .sort((e, f) => Math.hypot(...V[e[0]], ...V[e[1]]) - Math.hypot(...V[f[0]], ...V[f[1]]));
+  const edgeId = new Map(EDGES.map((e, n) => [e.join(), n]));
 
   const canvas = document.getElementById('bird');
   const ctx = canvas.getContext('2d');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let W, H, fg, bg, t0, last, phase = 0;
-  const ptr = { x: 0, y: 0 }, aim = { x: 0, y: 0 };
+  let W, H, ink, t0;
 
   const clamp = (x) => Math.max(0, Math.min(1, x));
   const ease = (x) => (x = clamp(x), x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
   const lerp = (a, b, k) => a + (b - a) * k;
-  const rgb = (name) => {
-    const hex = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  };
+  const rand = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
   function resize() {
     const dpr = devicePixelRatio || 1;
     W = canvas.clientWidth; H = canvas.clientHeight;
     canvas.width = W * dpr; canvas.height = H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    fg = rgb('--fg'); bg = rgb('--bg');
+    ink = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
+  }
+
+  // One quill stroke from p to q (k of the way): a broad nib held at 40 degrees, so width
+  // depends on direction; tapered ends, a slight bow and overshoot varied by `seed`.
+  function quill(p, q, k, seed) {
+    const dx = q[0] - p[0], dy = q[1] - p[1], len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+    const over = 0.8 + rand(seed) * 1.6;
+    const ax = p[0] - ux * over * 0.5, ay = p[1] - uy * over * 0.5;
+    const L = (len + over) * k;
+    const bow = (rand(seed + 1) - 0.5) * Math.min(3, len * 0.05);
+    const w = 0.45 + 1.3 * Math.abs(Math.sin(Math.atan2(dy, dx) - 0.7));
+    const side = (s) => {
+      const out = [];
+      for (let i = 0; i <= 8; i++) {
+        const t = i / 8, half = (w / 2) * (0.25 + 0.75 * Math.sin(Math.PI * t) ** 0.6);
+        const b = bow * 4 * t * (1 - t);
+        out.push([ax + ux * L * t + nx * (b + s * half), ay + uy * L * t + ny * (b + s * half)]);
+      }
+      return out;
+    };
+    const pts = [...side(1), ...side(-1).reverse()];
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => ctx[i ? 'lineTo' : 'moveTo'](x, y));
+    ctx.fill();
   }
 
   function frame(now) {
     const t = reduce ? 9 : (now - t0) / 1000;
-    const dt = Math.min(0.05, (now - last) / 1000 || 0); last = now;
-    aim.x += (ptr.x - aim.x) * Math.min(1, dt * 2.5);
-    aim.y += (ptr.y - aim.y) * Math.min(1, dt * 2.5);
 
-    // Timeline: crease lines draw in, paper fills, wings start beating, lift off, glide.
-    const fill = ease((t - 1.1) / 0.9);
-    const fly = clamp((t - 2.2) / 0.6);
-    const lift = ease((t - 2.5) / 2.6);
-    const settle = ease((t - 3.8) / 4);
-    phase += dt * 2 * Math.PI * lerp(2.2, 0.8, settle);
-    const beat = reduce ? 0.6 : fly * lerp(0.85, 0.5, settle) * Math.sin(phase);
-    const a = 0.12 + (beat > 0 ? beat : beat * 0.6);
+    // Inked once, then still apart from one slow wing lift every seven seconds.
+    const fill = ease((t - 1.4) / 0.8);
+    const s = t < 3 ? 9 : (t - 3) % 7;
+    const beat = s < 2.4 ? 0.22 * (1 - Math.cos(2 * Math.PI * s / 2.4)) / 2 : 0;
+    const a = 0.3 + beat;
+    const pitch = 0.08, rise = 0.03 * beat;
 
-    // Pointer: turn and bank towards it, drift a little, climb or dip.
-    const heading = -aim.x * 0.65 * (0.3 + 0.7 * lift);
-    const roll = aim.x * 0.45 * lift;
-    const pitch = 0.3 * lift * (1 - settle) - aim.y * 0.25 * lift + 0.05 * Math.sin(t * 0.9) * settle;
-    const rise = lift * (0.75 - aim.y * 0.2) + 0.07 * Math.sin(t * 0.9) * settle;
-    const drift = aim.x * 0.5 * lift;
-
-    const cam = -0.45, tilt = 0.45, scale = W / 5;
+    const cam = -0.5, tilt = 0.4, scale = W / 4.3;
     const trig = (r) => [Math.cos(r), Math.sin(r)];
-    const [ch, sh] = trig(heading), [cr, sr] = trig(roll), [cp, sp] = trig(pitch);
-    const [cc, sc] = trig(cam), [ct, st] = trig(tilt);
+    const [cp, sp] = trig(pitch), [cc, sc] = trig(cam), [ct, st] = trig(tilt);
 
     const pts = V.map(([x, y, z], i) => {
       if (WING.has(i)) {
         // Inner panel hinges on the ridge; the outer panel lags and bends further.
-        const r = Math.abs(z), r1 = Math.min(r, 0.8), r2 = r - r1, b = a + 0.5 * beat;
+        const r = Math.abs(z), r1 = Math.min(r, 0.8), r2 = r - r1, b = a + 0.6 * beat;
         y = r1 * Math.sin(a) + r2 * Math.sin(b);
         z = Math.sign(z) * (r1 * Math.cos(a) + r2 * Math.cos(b));
-        x += r2 * 0.15 * beat;
       }
-      [y, z] = [y * cr - z * sr, y * sr + z * cr];     // roll
-      [x, y] = [x * cp - y * sp, x * sp + y * cp];     // pitch
-      [x, z] = [x * ch - z * sh, x * sh + z * ch];     // heading
-      x += drift; y += rise;
-      const x1 = x * cc + z * sc, z1 = -x * sc + z * cc;  // camera orbit
-      const y2 = y * ct - z1 * st, z2 = y * st + z1 * ct; // camera tilt
+      [x, y] = [x * cp - y * sp, x * sp + y * cp];
+      y += rise;
+      const x1 = x * cc + z * sc, z1 = -x * sc + z * cc;
+      const y2 = y * ct - z1 * st, z2 = y * st + z1 * ct;
       const p = 7 / (7 + z2);
-      return [W / 2 + x1 * p * scale, H * 0.64 - y2 * p * scale, z2];
+      return [W / 2 + x1 * p * scale, H * 0.55 - y2 * p * scale, z2];
     });
 
     ctx.clearRect(0, 0, W, H);
-    const shade = (k, al = 1) => `rgba(${bg.map((c, j) => Math.round(lerp(c, fg[j], k))).join()},${al})`;
-    const ink = (al) => `rgba(${fg.join()},${al})`;
+    ctx.fillStyle = ctx.strokeStyle = ink;
 
-    // Shadow on the ground, fading as the bird climbs.
-    const sd = 1 - clamp(rise / 1.3);
-    ctx.fillStyle = ink(0.08 * sd * fill);
-    ctx.beginPath();
-    ctx.ellipse(W / 2 + drift * scale * 0.9, H * 0.64 + scale * 0.5, scale * (0.8 + 0.5 * sd), scale * 0.1 * (0.5 + sd), 0, 0, 2 * Math.PI);
-    ctx.fill();
-
-    ctx.lineJoin = ctx.lineCap = 'round';
-    ctx.lineWidth = 1.1;
-
-    // Solid paper faces, back to front, so hidden creases disappear.
+    // Paper facets back to front: page-coloured, hatched where they turn from the light.
     if (fill > 0) {
       const faces = FACES.map((f) => {
         const [A, B, C] = f.map((i) => pts[i]);
@@ -153,45 +154,52 @@
         return { f, depth: A[2] + B[2] + C[2], light };
       }).sort((p, q) => q.depth - p.depth);
       for (const { f, light } of faces) {
+        const tri = f.map((i) => pts[i]);
+        ctx.save();
         ctx.beginPath();
-        f.forEach((i, j) => ctx[j ? 'lineTo' : 'moveTo'](pts[i][0], pts[i][1]));
+        tri.forEach(([x, y], j) => ctx[j ? 'lineTo' : 'moveTo'](x, y));
         ctx.closePath();
-        ctx.fillStyle = shade(0.04 + 0.2 * light, fill);
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.globalAlpha = fill;
         ctx.fill();
-        ctx.strokeStyle = ink(0.85 * fill);
-        ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
+        if (light < 0.5) {
+          ctx.clip();
+          ctx.globalAlpha = fill * 0.75;
+          ctx.lineWidth = 0.5;
+          const gap = lerp(2, 5, light / 0.5);
+          ctx.beginPath();
+          for (let c = -H; c < W + H; c += gap) { ctx.moveTo(c, 0); ctx.lineTo(c + H * 0.6, H); }
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.globalAlpha = fill;
+        for (let j = 0; j < 3; j++) {
+          const e = [f[j], f[(j + 1) % 3]].sort((x, y) => x - y), id = edgeId.get(e.join());
+          quill(pts[e[0]], pts[e[1]], 1, id * 7);
+        }
+        ctx.globalAlpha = 1;
       }
     }
 
-    // Wireframe drawing itself in, fading once the paper is there.
+    // The pen inking the wireframe, fading once the paper covers hidden lines.
     if (fill < 1) {
-      ctx.strokeStyle = ink(0.85 * (1 - fill));
+      ctx.globalAlpha = 1 - fill;
       EDGES.forEach(([i, j], n) => {
-        const k = ease((t - 0.1 - n * 0.035) / 0.45);
-        if (!k) return;
-        ctx.beginPath();
-        ctx.moveTo(pts[i][0], pts[i][1]);
-        ctx.lineTo(lerp(pts[i][0], pts[j][0], k), lerp(pts[i][1], pts[j][1], k));
-        ctx.stroke();
+        const k = ease((t - 0.2 - n * 0.04) / 0.4);
+        if (k) quill(pts[i], pts[j], k, n * 7);
       });
+      ctx.globalAlpha = 1;
     }
 
     requestAnimationFrame(frame);
   }
 
-  function start() { t0 = last = performance.now(); phase = 0; }
   resize();
-  start();
+  t0 = performance.now();
   requestAnimationFrame(frame);
   addEventListener('resize', resize);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', resize);
-  canvas.addEventListener('click', start);
-  addEventListener('pointermove', (e) => {
-    const r = canvas.getBoundingClientRect();
-    ptr.x = Math.max(-1, Math.min(1, (e.clientX - r.left - r.width / 2) / (innerWidth / 2)));
-    ptr.y = Math.max(-1, Math.min(1, (e.clientY - r.top - r.height / 2) / (innerHeight / 2)));
-  });
-  document.addEventListener('pointerleave', () => { ptr.x = ptr.y = 0; });
 })();
 </script>
 </body>
