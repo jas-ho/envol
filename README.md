@@ -8,7 +8,7 @@ Source for [jason.envol.at](https://jason.envol.at), Jason's personal homepage.
 
 ## Deploy
 
-Cloudflare Pages project `envol`, connected to this repo. Every push to `main` goes live in about 30 s. Build command: none. Output directory: `public`.
+Cloudflare Pages project `envol` (envol-ewe.pages.dev), connected to this repo. Every push to `main` goes live in about 30 s. Build command: none. Output directory: `public`.
 
 - `jason.envol.at` is the Pages custom domain.
 - `envol.at` and `www.envol.at` are proxied records carrying a Cloudflare Redirect Rule (302 to `https://jason.envol.at`).
