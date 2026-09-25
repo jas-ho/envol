@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
@@ -14,13 +14,185 @@
   h1 { font-weight: normal; font-size: 2.2rem; margin: 0 0 .25rem; letter-spacing: .01em; }
   p { margin: .25rem 0; color: var(--muted); }
   a { color: inherit; text-underline-offset: .2em; }
+  #bird { display: block; width: min(24rem, 100%); aspect-ratio: 4 / 3; margin: 0 0 1rem -.5rem; cursor: pointer; }
 </style>
 </head>
 <body>
 <main>
+  <canvas id="bird" role="img" aria-label="Ein Papierkranich, der abhebt"></canvas>
   <h1>Jason</h1>
   <p>en vol. Mehr folgt.</p>
   <p><a href="mailto:jason@envol.at">jason@envol.at</a></p>
 </main>
+<script>
+(() => {
+  // Origami crane: x forward, y up, z to the bird's left.
+  const V = [
+    [0.42, 0, 0],       // 0 ridge front (wing root)
+    [-0.42, 0, 0],      // 1 ridge back (wing root)
+    [0, -0.42, 0],      // 2 keel
+    [0, -0.12, 0.2],    // 3 left flank
+    [0, -0.12, -0.2],   // 4 right flank
+    [0.28, -0.28, 0.05],// 5 neck base left
+    [0.28, -0.28, -0.05],//6 neck base right
+    [1.25, 0.8, 0],     // 7 neck tip
+    [1.5, 0.6, 0],      // 8 beak
+    [-0.28, -0.28, 0.05],//9 tail base left
+    [-0.28, -0.28, -0.05],//10 tail base right
+    [-1.35, 0.72, 0],   // 11 tail tip
+    [0.28, 0, 0.8],     // 12 left wing crease front
+    [-0.3, 0, 0.8],     // 13 left wing crease back
+    [-0.2, 0, 1.75],    // 14 left wing tip
+    [0.28, 0, -0.8],    // 15 right wing crease front
+    [-0.3, 0, -0.8],    // 16 right wing crease back
+    [-0.2, 0, -1.75],   // 17 right wing tip
+    [1.17, 0.6, 0],     // 18 head underside
+  ];
+  const WING = new Set([12, 13, 14, 15, 16, 17]);
+  const FACES = [
+    [0, 3, 2], [1, 3, 2], [0, 4, 2], [1, 4, 2], [0, 1, 3], [0, 1, 4],
+    [0, 5, 7], [0, 6, 7], [7, 8, 18],
+    [1, 9, 11], [1, 10, 11],
+    [0, 1, 13], [0, 13, 12], [12, 13, 14],
+    [0, 1, 16], [0, 16, 15], [15, 16, 17],
+  ];
+  // Unique edges, drawn in from the body outwards.
+  const EDGES = [...new Set(FACES.flatMap(([a, b, c]) =>
+    [[a, b], [b, c], [c, a]].map((e) => e.sort((x, y) => x - y).join())))]
+    .map((e) => e.split(',').map(Number))
+    .sort((e, f) => Math.hypot(...V[e[0]], ...V[e[1]]) - Math.hypot(...V[f[0]], ...V[f[1]]));
+
+  const canvas = document.getElementById('bird');
+  const ctx = canvas.getContext('2d');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W, H, fg, bg, t0, last, phase = 0;
+  const ptr = { x: 0, y: 0 }, aim = { x: 0, y: 0 };
+
+  const clamp = (x) => Math.max(0, Math.min(1, x));
+  const ease = (x) => (x = clamp(x), x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const rgb = (name) => {
+    const hex = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  };
+
+  function resize() {
+    const dpr = devicePixelRatio || 1;
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fg = rgb('--fg'); bg = rgb('--bg');
+  }
+
+  function frame(now) {
+    const t = reduce ? 9 : (now - t0) / 1000;
+    const dt = Math.min(0.05, (now - last) / 1000 || 0); last = now;
+    aim.x += (ptr.x - aim.x) * Math.min(1, dt * 2.5);
+    aim.y += (ptr.y - aim.y) * Math.min(1, dt * 2.5);
+
+    // Timeline: crease lines draw in, paper fills, wings start beating, lift off, glide.
+    const fill = ease((t - 1.1) / 0.9);
+    const fly = clamp((t - 2.2) / 0.6);
+    const lift = ease((t - 2.5) / 2.6);
+    const settle = ease((t - 3.8) / 4);
+    phase += dt * 2 * Math.PI * lerp(2.2, 0.8, settle);
+    const beat = reduce ? 0.6 : fly * lerp(0.85, 0.5, settle) * Math.sin(phase);
+    const a = 0.12 + (beat > 0 ? beat : beat * 0.6);
+
+    // Pointer: turn and bank towards it, drift a little, climb or dip.
+    const heading = -aim.x * 0.65 * (0.3 + 0.7 * lift);
+    const roll = aim.x * 0.45 * lift;
+    const pitch = 0.3 * lift * (1 - settle) - aim.y * 0.25 * lift + 0.05 * Math.sin(t * 0.9) * settle;
+    const rise = lift * (0.75 - aim.y * 0.2) + 0.07 * Math.sin(t * 0.9) * settle;
+    const drift = aim.x * 0.5 * lift;
+
+    const cam = -0.45, tilt = 0.45, scale = W / 5;
+    const trig = (r) => [Math.cos(r), Math.sin(r)];
+    const [ch, sh] = trig(heading), [cr, sr] = trig(roll), [cp, sp] = trig(pitch);
+    const [cc, sc] = trig(cam), [ct, st] = trig(tilt);
+
+    const pts = V.map(([x, y, z], i) => {
+      if (WING.has(i)) {
+        // Inner panel hinges on the ridge; the outer panel lags and bends further.
+        const r = Math.abs(z), r1 = Math.min(r, 0.8), r2 = r - r1, b = a + 0.5 * beat;
+        y = r1 * Math.sin(a) + r2 * Math.sin(b);
+        z = Math.sign(z) * (r1 * Math.cos(a) + r2 * Math.cos(b));
+        x += r2 * 0.15 * beat;
+      }
+      [y, z] = [y * cr - z * sr, y * sr + z * cr];     // roll
+      [x, y] = [x * cp - y * sp, x * sp + y * cp];     // pitch
+      [x, z] = [x * ch - z * sh, x * sh + z * ch];     // heading
+      x += drift; y += rise;
+      const x1 = x * cc + z * sc, z1 = -x * sc + z * cc;  // camera orbit
+      const y2 = y * ct - z1 * st, z2 = y * st + z1 * ct; // camera tilt
+      const p = 7 / (7 + z2);
+      return [W / 2 + x1 * p * scale, H * 0.64 - y2 * p * scale, z2];
+    });
+
+    ctx.clearRect(0, 0, W, H);
+    const shade = (k, al = 1) => `rgba(${bg.map((c, j) => Math.round(lerp(c, fg[j], k))).join()},${al})`;
+    const ink = (al) => `rgba(${fg.join()},${al})`;
+
+    // Shadow on the ground, fading as the bird climbs.
+    const sd = 1 - clamp(rise / 1.3);
+    ctx.fillStyle = ink(0.08 * sd * fill);
+    ctx.beginPath();
+    ctx.ellipse(W / 2 + drift * scale * 0.9, H * 0.64 + scale * 0.5, scale * (0.8 + 0.5 * sd), scale * 0.1 * (0.5 + sd), 0, 0, 2 * Math.PI);
+    ctx.fill();
+
+    ctx.lineJoin = ctx.lineCap = 'round';
+    ctx.lineWidth = 1.1;
+
+    // Solid paper faces, back to front, so hidden creases disappear.
+    if (fill > 0) {
+      const faces = FACES.map((f) => {
+        const [A, B, C] = f.map((i) => pts[i]);
+        const u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], v = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
+        const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        const light = Math.abs(n[0] * 0.35 - n[1] * 0.75 - n[2] * 0.55) / (Math.hypot(...n) || 1);
+        return { f, depth: A[2] + B[2] + C[2], light };
+      }).sort((p, q) => q.depth - p.depth);
+      for (const { f, light } of faces) {
+        ctx.beginPath();
+        f.forEach((i, j) => ctx[j ? 'lineTo' : 'moveTo'](pts[i][0], pts[i][1]));
+        ctx.closePath();
+        ctx.fillStyle = shade(0.04 + 0.2 * light, fill);
+        ctx.fill();
+        ctx.strokeStyle = ink(0.85 * fill);
+        ctx.stroke();
+      }
+    }
+
+    // Wireframe drawing itself in, fading once the paper is there.
+    if (fill < 1) {
+      ctx.strokeStyle = ink(0.85 * (1 - fill));
+      EDGES.forEach(([i, j], n) => {
+        const k = ease((t - 0.1 - n * 0.035) / 0.45);
+        if (!k) return;
+        ctx.beginPath();
+        ctx.moveTo(pts[i][0], pts[i][1]);
+        ctx.lineTo(lerp(pts[i][0], pts[j][0], k), lerp(pts[i][1], pts[j][1], k));
+        ctx.stroke();
+      });
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  function start() { t0 = last = performance.now(); phase = 0; }
+  resize();
+  start();
+  requestAnimationFrame(frame);
+  addEventListener('resize', resize);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', resize);
+  canvas.addEventListener('click', start);
+  addEventListener('pointermove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    ptr.x = Math.max(-1, Math.min(1, (e.clientX - r.left - r.width / 2) / (innerWidth / 2)));
+    ptr.y = Math.max(-1, Math.min(1, (e.clientY - r.top - r.height / 2) / (innerHeight / 2)));
+  });
+  document.addEventListener('pointerleave', () => { ptr.x = ptr.y = 0; });
+})();
+</script>
 </body>
 </html>
